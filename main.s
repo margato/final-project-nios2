@@ -295,7 +295,7 @@ PRINT_INVALID_COMMAND:
     movia r4, 0x6ce1766e       # "nvál"
     call WRITE_CHAR
 
-    movia r4, 0x6f6469       # "idoENTER"
+    movia r4, 0x6f6469       # "ido"
     call WRITE_CHAR   
     
     movia r4, 0x0a0a       # "ENTERENTER"
