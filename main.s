@@ -107,7 +107,7 @@ COMMAND:
     movia r8, CHAR_BASE_ADDR                # carrega endereço de memória dos caracteres
     ldw r9, (r8)                            # carrega o offset
     movi r10, 0xc                           # valor para saber se o offset é valido
-    blt r9, r10, END_COMMAND                # caso o offset menor que 12 (3 caractere) ainda não é considerado um comando
+    blt r9, r10, _INVALID_COMMAND                # caso o offset menor que 12 (3 caractere) ainda não é considerado um comando
     
     stw r0, (r8)                            # zera o offset, preparando para as proximas chamadas
     
@@ -132,7 +132,7 @@ COMMAND:
     movi r10, 0x3231                        # mascara para saber se o comando selecionado foi 21
     beq r9, r10, _COMMAND_21                # caso seja comando 21
 
-    br END_COMMAND
+    br _INVALID_COMMAND
 
     _COMMAND_00:
         call COMMAND_00
@@ -149,6 +149,8 @@ COMMAND:
     _COMMAND_21:
         call COMMAND_21
 
+    _INVALID_COMMAND:
+        call INVALID_COMMAND
 
     END_COMMAND:
     # epílogo
@@ -234,7 +236,7 @@ INVALID_COMMAND:
     addi sp, sp, -4
     stw ra, (sp)
     
-    # nothing to see here
+    call PRINT_INVALID_COMMAND
 
     # epílogo
     ldw ra, (sp)
@@ -267,6 +269,36 @@ PRINT_INSERT_COMMAND:
     call WRITE_CHAR
 
     movia r4, 0x203a6f64        # "do: "
+    call WRITE_CHAR
+
+    # epílogo
+    ldw r4, 4(sp)
+    ldw ra, (sp)
+    addi sp, sp, 8
+    ret 
+
+PRINT_INVALID_COMMAND:
+    # prólogo
+    addi sp, sp, -8
+    stw ra, (sp)
+    stw r4, 4(sp)
+    
+    movia r4, 0x616d6f43        # "Coma"
+    call WRITE_CHAR   
+
+    movia r4, 0x6e              # "n"
+    call WRITE_CHAR
+
+    movia r4, 0x69206f64        # "do i"
+    call WRITE_CHAR
+
+    movia r4, 0x6ce1766e       # "nvál"
+    call WRITE_CHAR
+
+    movia r4, 0x6f6469       # "idoENTER"
+    call WRITE_CHAR   
+    
+    movia r4, 0x0a0a       # "ENTERENTER"
     call WRITE_CHAR
 
     # epílogo
