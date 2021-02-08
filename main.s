@@ -39,7 +39,7 @@ _start:
 
     movia r5, IO_BASE_ADDR 
     mov r2, r0                      # resetar r2
-    call INSERT_COMMAND
+    call PRINT_INSERT_COMMAND
     POLLING:
         movi r9, 0xa                # carrega ENTER em r9
 
@@ -52,7 +52,7 @@ _start:
         call COMMAND                # chama subrotina que trata os comandos
         mov r2, r0                  # resetar r2
 
-        call INSERT_COMMAND
+        call PRINT_INSERT_COMMAND
 
         br POLLING
 
@@ -242,7 +242,7 @@ INVALID_COMMAND:
     ret 
     
     
-INSERT_COMMAND:
+PRINT_INSERT_COMMAND:
     # prólogo
     addi sp, sp, -8
     stw ra, (sp)
