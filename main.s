@@ -196,19 +196,22 @@ HANDLE_COMMAND_00_ARGUMENT:
     movi r10, 9
     bgt r9, r10, SECOND_NUMBER_OF_ARGUMENT_INVALID        # se for > 9, zera r9
 
-    br SUM_ARGUMENT_NUMBERS
+    br PREPARE_RETURN_OF_ARGUMENT
 
     FIRST_NUMBER_OF_ARGUMENT_INVALID:
         movi r8, -1
         br END_HANDLE_COMMAND_00_ARGUMENT
 
     SECOND_NUMBER_OF_ARGUMENT_INVALID:
-        mov r9, r0
+        movi r9, -1
+        br END_HANDLE_COMMAND_00_ARGUMENT
 
-    SUM_ARGUMENT_NUMBERS:
-        slli r8, r8, 4
-        or r8, r8, r9                                    # soma r8 e r9 para obter valor total do argumento de 2 números
-
+    PREPARE_RETURN_OF_ARGUMENT:
+        movi r10, 1
+        bne r8, r10, FIRST_NUMBER_OF_ARGUMENT_INVALID
+        movi r8, 0xa
+        add r8, r8, r9
+        
     END_HANDLE_COMMAND_00_ARGUMENT:
         mov r2, r8
     
@@ -229,12 +232,12 @@ COMMAND_00:
     stw r9, 12(sp)
 
     call HANDLE_COMMAND_00_ARGUMENT
-    mov r8, r2
     movi r8, -1
 
     beq r8, r2, INVALID_ARGUMENT_COMMAND_00     # se HANDLE_COMMAND_00_ARGUMENT retornar -1: argumento inválido
 
-    stwio r8, (r5)                              # acende led
+    mov r4, r2
+    call TURN_ON_NTH_LED
 
     br END_COMMAND_00
     INVALID_ARGUMENT_COMMAND_00:
@@ -250,6 +253,24 @@ COMMAND_00:
     addi sp, sp, 16
     ret 
 
+TURN_ON_NTH_LED: # arg: n = r4
+     # prólogo
+    addi sp, sp, -12
+    stw ra, (sp)
+    stw r8, 4(sp)
+    stw r4, 8(sp)
+    
+    movi r8, 0x1
+    subi r4, r4, 1
+    sll r8, r8, r4
+    stwio r8, (r5)                              # acende led
+
+     # epílogo
+    ldw ra, (sp)
+    ldw r8, 4(sp)
+    ldw r4, 8(sp)
+    addi sp, sp, 12
+    ret 
 
 COMMAND_01:
      # prólogo
