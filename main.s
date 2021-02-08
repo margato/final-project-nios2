@@ -39,17 +39,20 @@ _start:
 
     movia r5, IO_BASE_ADDR 
     mov r2, r0                      # resetar r2
+    call INSERT_COMMAND
     POLLING:
         movi r9, 0xa                # carrega ENTER em r9
 
-        call READ_CHAR
-        mov r4, r2
+        call READ_CHAR              
+        mov r4, r2                  # carrega em r4 o retorno de READ_CHAR
         beq r0, r4, POLLING         # se r4 == 0, não leu nada
-        call WRITE_CHAR
-        bne r9, r4, POLLING 
+        call WRITE_CHAR             # escreve char na tela
+        bne r9, r4, POLLING         # se não for ENTER, polling continua
 
         call COMMAND                # chama subrotina que trata os comandos
         mov r2, r0                  # resetar r2
+
+        call INSERT_COMMAND
 
         br POLLING
 
@@ -67,8 +70,8 @@ READ_CHAR:
     #############
     mov r2, r0              
     movia r8, RVALID_MASK  
-    ldwio r9, UART(r5)          # carrega control register em r9
-    and r9, r9, r8              # obtém valor de RAVAIL
+    ldwio r9, UART(r5)              # carrega control register em r9
+    and r9, r9, r8                  # obtém valor de RAVAIL
     beq r9, r0, END_READ_CHAR 
     #############
 
@@ -237,31 +240,61 @@ INVALID_COMMAND:
     ldw ra, (sp)
     addi sp, sp, 4
     ret 
-
-WRITE_CHAR:
+    
+    
+INSERT_COMMAND:
     # prólogo
     addi sp, sp, -8
     stw ra, (sp)
     stw r4, 4(sp)
+    
+    movia r4, 0x72746e45        # "Entr"
+    call WRITE_CHAR  
+    
+    movia r4, 0x2065            # "e "
+    call WRITE_CHAR
+
+    movia r4, 0x206d6f63        # "com "
+    call WRITE_CHAR   
+    
+    movia r4, 0x206d75            # "um"
+    call WRITE_CHAR
+    
+    movia r4, 0x616d6f63        # "coma"
+    call WRITE_CHAR 
+
+    movia r4, 0x6e              # "n"
+    call WRITE_CHAR
+
+    movia r4, 0x203a6f64        # "do: "
+    call WRITE_CHAR
+
+    # epílogo
+    ldw r4, 4(sp)
+    ldw ra, (sp)
+    addi sp, sp, 8
+    ret 
+
+WRITE_CHAR:
+    # prólogo
+    addi sp, sp, -12
+    stw ra, (sp)
+    stw r4, 4(sp)
+    stw r8, 8(sp)
     #############
-
-    stwio r4, UART(r5)             # carrega r4 no registrador de dados
-
+    WRITE_LOOP:
+        beq r4, r0, END_WRITE_LOOP
+        stwio r4, UART(r5)            
+        srli r4, r4, 8
+        br WRITE_LOOP
+    END_WRITE_LOOP:
     # epílogo
     ldw ra, (sp)
     ldw r4, 4(sp)
-    addi sp, sp, 8
+    ldw r8, 8(sp)
+    addi sp, sp, 12
     ret
 
 .org 0x500
 CHAR_BASE_ADDR:
     .word 0x0
-
-
-    
-    
-    
-    
-    
-    
-    
