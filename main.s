@@ -174,44 +174,47 @@ COMMAND:
 
 HANDLE_COMMAND_00_ARGUMENT:
      # prólogo
-    addi sp, sp, -16
+    addi sp, sp, -20
     stw ra, (sp)
     stw r8, 4(sp)
     stw r9, 8(sp)
     stw r10, 12(sp)
+    stw r11, 16(sp)
 
     ldw r8, (r4)                                          # carrega primeiro número do argumento
     andi r8, r8, 0xF                                      # obtém apenas número
 
     movi r10, 0
-    blt r8, r10, FIRST_NUMBER_OF_ARGUMENT_INVALID         # se for < 0, r8 = -1
+    blt r8, r10, INVALID_ARGUMENT_FOUND_COMMAND_00        # se for < 0, r8 = -1
     movi r10, 9
-    bgt r8, r10, FIRST_NUMBER_OF_ARGUMENT_INVALID         # se for > 9, r8 = -1
+    bgt r8, r10, INVALID_ARGUMENT_FOUND_COMMAND_00        # se for > 9, r8 = -1
     
     ldw r9, 4(r4)                                         # carrega segundo número do argumento
     andi r9, r9, 0xF                                      # obtém apenas número 
 
     movi r10, 0
-    blt r9, r10, SECOND_NUMBER_OF_ARGUMENT_INVALID        # se for < 0, zera r9
-    movi r10, 9
-    bgt r9, r10, SECOND_NUMBER_OF_ARGUMENT_INVALID        # se for > 9, zera r9
+    blt r9, r10, END_HANDLE_COMMAND_00_ARGUMENT           # se for < 0, zera r9
+    movi r10, 8
+    bgt r9, r10, INVALID_ARGUMENT_FOUND_COMMAND_00        # se for > 9, zera r9
+    
+    movi r11, 0xa
+    ldw r10, 8(r4)                                        # valida ENTER
+    bne r10, r11, INVALID_ARGUMENT_FOUND_COMMAND_00
 
     br PREPARE_RETURN_OF_ARGUMENT
 
-    FIRST_NUMBER_OF_ARGUMENT_INVALID:
+    INVALID_ARGUMENT_FOUND_COMMAND_00:
+        movi r10, 0xa
+        beq r9, r10, END_HANDLE_COMMAND_00_ARGUMENT
         movi r8, -1
-        br END_HANDLE_COMMAND_00_ARGUMENT
-
-    SECOND_NUMBER_OF_ARGUMENT_INVALID:
-        movi r9, -1
         br END_HANDLE_COMMAND_00_ARGUMENT
 
     PREPARE_RETURN_OF_ARGUMENT:
         movi r10, 1
-        bne r8, r10, FIRST_NUMBER_OF_ARGUMENT_INVALID
+        bne r8, r10, INVALID_ARGUMENT_FOUND_COMMAND_00
         movi r8, 0xa
         add r8, r8, r9
-        
+
     END_HANDLE_COMMAND_00_ARGUMENT:
         mov r2, r8
     
@@ -220,7 +223,8 @@ HANDLE_COMMAND_00_ARGUMENT:
     ldw r8, 4(sp)
     ldw r9, 8(sp)
     ldw r10, 12(sp)
-    addi sp, sp, 16
+    ldw r11, 16(sp)
+    addi sp, sp, 20
     ret 
 
 COMMAND_00:
