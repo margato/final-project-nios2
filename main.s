@@ -97,23 +97,25 @@ END_READ_CHAR:
     
 COMMAND:
      # prólogo
-    addi sp, sp, -20
+    addi sp, sp, -24
     stw ra, (sp)
     stw r8, 4(sp)
     stw r9, 8(sp)
     stw r10, 12(sp)
     stw r11, 16(sp)
+    stw r4, 16(sp)
     
     movia r8, CHAR_BASE_ADDR                # carrega endereço de memória dos caracteres
     ldw r9, (r8)                            # carrega o offset
     movi r10, 0xc                           # valor para saber se o offset é valido
-    blt r9, r10, _INVALID_COMMAND                # caso o offset menor que 12 (3 caractere) ainda não é considerado um comando
+    blt r9, r10, _INVALID_COMMAND           # caso o offset menor que 12 (3 caractere) ainda não é considerado um comando
     
     stw r0, (r8)                            # zera o offset, preparando para as proximas chamadas
     
     ldw r9, 4(r8)                           # carrega o primeiro caractere
     slli r9, r9, 8                          # move dois bytes para esquerda (preparação para concatenação a seguir)
     ldw r10, 8(r8)                          # carrega o segundo caractere
+    ldw r11, 12(r8)                         # carrega o terceiro caractere
 
     or r9, r10, r9                          # concatenação dos caracteres 
     
@@ -134,7 +136,14 @@ COMMAND:
 
     br _INVALID_COMMAND
 
+
     _COMMAND_00:
+        movi r9, 0x20                           # carrega ESPAÇO em r9                
+        bne r11, r9, _INVALID_COMMAND           # se o terceiro char não for ESPAÇO: comando inválido
+
+        mov r4, r8                            
+        addi r4, r4, 16                         # define como argumento do comando o endereço do primeiro argumento
+
         call COMMAND_00
         br END_COMMAND
     _COMMAND_01:
@@ -159,23 +168,86 @@ COMMAND:
     ldw r9, 8(sp)
     ldw r10, 12(sp)
     ldw r11, 16(sp)
-    addi sp, sp, 20
+    ldw r4, 20(sp)
+    addi sp, sp, 24
     ret 
 
-
-
-
-COMMAND_00:
+HANDLE_COMMAND_00_ARGUMENT:
      # prólogo
-    addi sp, sp, -8
+    addi sp, sp, -16
     stw ra, (sp)
     stw r8, 4(sp)
+    stw r9, 8(sp)
+    stw r10, 12(sp)
+
+    ldw r8, (r4)                                          # carrega primeiro número do argumento
+    andi r8, r8, 0xF                                      # obtém apenas número
+
+    movi r10, 0
+    blt r8, r10, FIRST_NUMBER_OF_ARGUMENT_INVALID         # se for < 0, r8 = -1
+    movi r10, 9
+    bgt r8, r10, FIRST_NUMBER_OF_ARGUMENT_INVALID         # se for > 9, r8 = -1
     
+    ldw r9, 4(r4)                                         # carrega segundo número do argumento
+    andi r9, r9, 0xF                                      # obtém apenas número 
+
+    movi r10, 0
+    blt r9, r10, SECOND_NUMBER_OF_ARGUMENT_INVALID        # se for < 0, zera r9
+    movi r10, 9
+    bgt r9, r10, SECOND_NUMBER_OF_ARGUMENT_INVALID        # se for > 9, zera r9
+
+    br SUM_ARGUMENT_NUMBERS
+
+    FIRST_NUMBER_OF_ARGUMENT_INVALID:
+        movi r8, -1
+        br END_HANDLE_COMMAND_00_ARGUMENT
+
+    SECOND_NUMBER_OF_ARGUMENT_INVALID:
+        mov r9, r0
+
+    SUM_ARGUMENT_NUMBERS:
+        slli r8, r8, 4
+        or r8, r8, r9                                    # soma r8 e r9 para obter valor total do argumento de 2 números
+
+    END_HANDLE_COMMAND_00_ARGUMENT:
+        mov r2, r8
     
      # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
-    addi sp, sp, 8
+    ldw r9, 8(sp)
+    ldw r10, 12(sp)
+    addi sp, sp, 16
+    ret 
+
+COMMAND_00:
+     # prólogo
+    addi sp, sp, -16
+    stw ra, (sp)
+    stw r2, 4(sp)
+    stw r8, 8(sp)
+    stw r9, 12(sp)
+
+    call HANDLE_COMMAND_00_ARGUMENT
+    mov r8, r2
+    movi r8, -1
+
+    beq r8, r2, INVALID_ARGUMENT_COMMAND_00     # se HANDLE_COMMAND_00_ARGUMENT retornar -1: argumento inválido
+
+    stwio r8, (r5)                              # acende led
+
+    br END_COMMAND_00
+    INVALID_ARGUMENT_COMMAND_00:
+        call PRINT_INVALID_COMMAND
+        br END_COMMAND_00
+
+    END_COMMAND_00:    
+     # epílogo
+    ldw ra, (sp)
+    ldw r2, 4(sp)
+    ldw r8, 8(sp)
+    ldw r9, 12(sp)
+    addi sp, sp, 16
     ret 
 
 
@@ -259,7 +331,7 @@ PRINT_INSERT_COMMAND:
     movia r4, 0x206d6f63        # "com "
     call WRITE_CHAR   
     
-    movia r4, 0x206d75            # "um"
+    movia r4, 0x206d75          # "um"
     call WRITE_CHAR
     
     movia r4, 0x616d6f63        # "coma"
