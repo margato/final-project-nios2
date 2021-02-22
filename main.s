@@ -1,5 +1,6 @@
 .equ UART,          0x1000  
 .equ IO_BASE_ADDR,  0x10000000
+.equ TIMER,         0x2000
 .equ DATA_MASK,     0xff
 .equ RVALID_MASK,   0x8000  
 .equ STACK,         0x10000
@@ -19,9 +20,14 @@ RTI:
 
     subi ea, ea, 4          
 
-    andi r8, et, 1              # máscara do temporizador
+    andi r8, et, 0b11           # máscara do timer
+
     movi r9, 1 
-    bne r8, r9, END_RTI   
+    beq r8, r9, _HANDLE_INTERRUPTION_LED
+    br END_RTI
+    _HANDLE_INTERRUPTION_LED:
+        call HANDLE_INTERRUPTION_LED
+        br END_RTI   
 
 END_RTI:
     # epílogo
@@ -36,9 +42,26 @@ eret
 _start:
     movia sp, STACK 
     mov fp, sp
-
     movia r5, IO_BASE_ADDR 
     mov r2, r0                      # resetar r2
+
+
+    movia r10, 25000000             # 50*10^6
+
+    andi r17, r10, 0xFFFF           # parte baixa (16 bits inferiores)
+    stwio r17, TIMER+8(r5)          # configura parte baixa do timer
+
+    srli r17, r10, 16               # parte alta (16 bits superiores)
+    stwio r17, TIMER+12(r5)         # configura parte alta do timer
+
+    movi r10, 3
+    wrctl ienable, r10              # habilitar timer no ienable
+    movi r10, 1
+    wrctl status, r10               # habilitar o PIE no status
+
+    movi r10, 0b111                 # configuração do timer
+    stwio r10, TIMER+4(r5)          # salva configuração do timer
+
     call PRINT_INSERT_COMMAND
     POLLING:
         movi r9, 0xa                # carrega ENTER em r9
@@ -147,6 +170,12 @@ COMMAND:
         call COMMAND_00
         br END_COMMAND
     _COMMAND_01:
+        movi r9, 0x20                           # carrega ESPAÇO em r9                
+        bne r11, r9, _INVALID_COMMAND           # se o terceiro char não for ESPAÇO: comando inválido
+
+        mov r4, r8                            
+        addi r4, r4, 16                         # define como argumento do comando o endereço do primeiro argumento
+
         call COMMAND_01  
         br END_COMMAND 
     _COMMAND_10:
@@ -172,7 +201,7 @@ COMMAND:
     addi sp, sp, 24
     ret 
 
-HANDLE_COMMAND_00_ARGUMENT:
+HANDLE_COMMAND_LEDS_ARGUMENT:
      # prólogo
     addi sp, sp, -20
     stw ra, (sp)
@@ -235,10 +264,10 @@ COMMAND_00:
     stw r8, 8(sp)
     stw r9, 12(sp)
 
-    call HANDLE_COMMAND_00_ARGUMENT
+    call HANDLE_COMMAND_LEDS_ARGUMENT
     movi r8, -1
 
-    beq r8, r2, INVALID_ARGUMENT_COMMAND_00     # se HANDLE_COMMAND_00_ARGUMENT retornar -1: argumento inválido
+    beq r8, r2, INVALID_ARGUMENT_COMMAND_00     # se HANDLE_COMMAND_LEDS_ARGUMENT retornar -1: argumento inválido
 
     mov r4, r2
     call TURN_ON_NTH_LED
@@ -257,37 +286,123 @@ COMMAND_00:
     addi sp, sp, 16
     ret 
 
-TURN_ON_NTH_LED: # arg: n = r4
+HANDLE_INTERRUPTION_LED: 
      # prólogo
     addi sp, sp, -12
     stw ra, (sp)
     stw r8, 4(sp)
-    stw r4, 8(sp)
+    stw r9, 8(sp)
+
+    stwio r0, TIMER(r5)             # reseta interrupção no detector de borda
     
-    movi r8, 0x1
-    subi r4, r4, 1
-    sll r8, r8, r4
-    stwio r8, (r5)                              # acende led
+    #LED_BASE_ADDR
+    movi r9, LED_BASE_ADDR          # carrega endereço dos leds em r10
+    ldw r8, (r9)                    # carrega leds que devem ser acesos (memória)
+    ldwio r9, (r5)                  # carrega leds acesos atualmente
+
+    beq r9, r0, TURN_ON_LEDS        # se led apagado, acende
+    TURN_OFF_LEDS:
+        stwio r0, (r5)              # apaga leds
+        br _END_HANDLE_INTERRUPTION_LED
+    TURN_ON_LEDS:
+        stwio r8, (r5)              # acende leds
+
+_END_HANDLE_INTERRUPTION_LED:
+     # epílogo
+    ldw ra, (sp)
+    ldw r8, 4(sp)
+    ldw r9, 8(sp)
+    addi sp, sp, 12
+    ret   
+
+TURN_ON_NTH_LED: # arg: n = r4
+     # prólogo
+    addi sp, sp, -20
+    stw ra, (sp)
+    stw r8, 4(sp)
+    stw r9, 8(sp)
+    stw r10, 12(sp)
+    stw r4, 16(sp)
+    
+    movi r8, 0x1                    # carrega 0x1 em r8
+    subi r4, r4, 1                  # subtraí de r4, uma vez que começa de 0 a N led
+    sll r8, r8, r4                  # move o bit [r4] - 1 vezes para esquerda. por exemplo: r4 = 4, então r8 = 0x1000
+
+    movi r10, LED_BASE_ADDR         # carrega endereço dos leds em r10
+    ldw r9, (r10)
+
+    or r9, r9, r8                   # concatenar leds 
+
+    stw r9, (r10)                   # salva leds
 
      # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
-    ldw r4, 8(sp)
-    addi sp, sp, 12
+    ldw r9, 8(sp)
+    ldw r10, 12(sp)
+    ldw r4, 16(sp)
+    addi sp, sp, 20
+    ret 
+
+TURN_OFF_NTH_LED: # arg: n = r4
+     # prólogo
+    addi sp, sp, -20
+    stw ra, (sp)
+    stw r8, 4(sp)
+    stw r9, 8(sp)
+    stw r10, 12(sp)
+    stw r4, 16(sp)
+    
+    movi r8, 0x1                    # carrega 0x1 em r8
+    subi r4, r4, 1                  # subtraí de r4, uma vez que começa de 0 a N led
+    sll r8, r8, r4                  # move o bit [r4] - 1 vezes para esquerda. por exemplo: r4 = 4, então r8 = 0x1000
+
+    movi r10, LED_BASE_ADDR         # carrega endereço dos leds em r10
+    ldw r9, (r10)
+
+    xor r9, r9, r8                  # concatenar leds 
+
+    stw r9, (r10)                   # salva leds
+
+     # epílogo
+    ldw ra, (sp)
+    ldw r8, 4(sp)
+    ldw r9, 8(sp)
+    ldw r10, 12(sp)
+    ldw r4, 16(sp)
+    addi sp, sp, 20
     ret 
 
 COMMAND_01:
      # prólogo
-    addi sp, sp, -8
+    addi sp, sp, -16
     stw ra, (sp)
-    stw r8, 4(sp)
-    
-    
+    stw r2, 4(sp)
+    stw r8, 8(sp)
+    stw r9, 12(sp)
+
+    call HANDLE_COMMAND_LEDS_ARGUMENT
+    movi r8, -1
+
+    beq r8, r2, INVALID_ARGUMENT_COMMAND_01     # se HANDLE_COMMAND_LEDS_ARGUMENT retornar -1: argumento inválido
+
+    mov r4, r2
+    call TURN_OFF_NTH_LED
+
+    br END_COMMAND_01
+    INVALID_ARGUMENT_COMMAND_01:
+        call PRINT_INVALID_COMMAND
+        br END_COMMAND_01
+
+    END_COMMAND_01:    
      # epílogo
     ldw ra, (sp)
-    ldw r8, 4(sp)
-    addi sp, sp, 8
+    ldw r2, 4(sp)
+    ldw r8, 8(sp)
+    ldw r9, 12(sp)
+    addi sp, sp, 16
     ret 
+
 
 COMMAND_10:
      # prólogo
@@ -389,13 +504,13 @@ PRINT_INVALID_COMMAND:
     movia r4, 0x69206f64        # "do i"
     call WRITE_CHAR
 
-    movia r4, 0x6ce1766e       # "nvál"
+    movia r4, 0x6ce1766e        # "nvál"
     call WRITE_CHAR
 
-    movia r4, 0x6f6469       # "ido"
+    movia r4, 0x6f6469          # "ido"
     call WRITE_CHAR   
     
-    movia r4, 0x0a0a       # "ENTERENTER"
+    movia r4, 0x0a0a            # "ENTERENTER"
     call WRITE_CHAR
 
     # epílogo
@@ -424,6 +539,7 @@ WRITE_CHAR:
     addi sp, sp, 12
     ret
 
-.org 0x500
+LED_BASE_ADDR:
+    .word 0x0
 CHAR_BASE_ADDR:
     .word 0x0
