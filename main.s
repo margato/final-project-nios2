@@ -46,7 +46,7 @@ _start:
     mov r2, r0                      # resetar r2
 
 
-    movia r10, 25000000             # 50*10^6
+    movia r10, 25000000             # 25*10^6 = 500ms
 
     andi r17, r10, 0xFFFF           # parte baixa (16 bits inferiores)
     stwio r17, TIMER+8(r5)          # configura parte baixa do timer
