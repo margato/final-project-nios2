@@ -346,31 +346,39 @@ TURN_ON_NTH_LED: # arg: n = r4
 
 TURN_OFF_NTH_LED: # arg: n = r4
      # prólogo
-    addi sp, sp, -20
+    addi sp, sp, -24
     stw ra, (sp)
     stw r8, 4(sp)
     stw r9, 8(sp)
     stw r10, 12(sp)
-    stw r4, 16(sp)
+    stw r11, 16(sp)
+    stw r4, 20(sp)
     
-    movi r8, 0x1                    # carrega 0x1 em r8
-    subi r4, r4, 1                  # subtraí de r4, uma vez que começa de 0 a N led
-    sll r8, r8, r4                  # move o bit [r4] - 1 vezes para esquerda. por exemplo: r4 = 4, então r8 = 0x1000
+    movi r8, 0x1                        # carrega 0x1 em r8
+    subi r4, r4, 1                      # subtraí de r4, uma vez que começa de 0 a N led
+    sll r8, r8, r4                      # move o bit [r4] - 1 vezes para esquerda. por exemplo: r4 = 4, então r8 = 0x1000
 
-    movi r10, LED_BASE_ADDR         # carrega endereço dos leds em r10
+    movi r10, LED_BASE_ADDR             # carrega endereço dos leds em r10
     ldw r9, (r10)
 
-    xor r9, r9, r8                  # concatenar leds 
+    mov r11, r9                         # carrega leds salvo na memória
+    srl r11, r11, r4                     
+    andi r11, r11, 0x1                  # pega bit que está sendo desligado
 
-    stw r9, (r10)                   # salva leds
+    beq r11, r0, _END_TURN_OFF_NTH_LED  # se bit for 0, finaliza
 
+    xor r9, r9, r8                      # concatenar leds 
+    stw r9, (r10)                       # salva leds
+
+_END_TURN_OFF_NTH_LED:
      # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
     ldw r9, 8(sp)
     ldw r10, 12(sp)
-    ldw r4, 16(sp)
-    addi sp, sp, 20
+    ldw r11, 16(sp)
+    ldw r4, 20(sp)
+    addi sp, sp, 24
     ret 
 
 COMMAND_01:
