@@ -63,9 +63,6 @@ _start:
     srli r17, r10, 16               # parte alta (16 bits superiores)
     stwio r17, TIMER+12(r5)         # configura parte alta do timer
 
-    movi r10, 0x8                   # máscara para bit 3
-    stwio r10, 0x58(r5)
-
     movi r10, 3
     wrctl ienable, r10              # habilitar timer no ienable
     movi r10, 1
@@ -481,10 +478,6 @@ HANDLE_BUTTON_PRESS:
     stw ra, (sp)
     stw r8, 4(sp)
     stw r9, 8(sp)
-    
-    movi r8, 8
-    ldwio r9, PUSH_BUTTON_MASK(r5)              
-    stwio r8, PUSH_BUTTON_MASK(r5)       # reseta interrupção no detector de borda
 
 
      # epílogo
@@ -663,8 +656,8 @@ SEGMENT_DISPLAY_STATE:
 /**
     bits representam estado
 
-    0x00000000
-           cba
+    0b00000000
+            ba
 
     a = is_rotating
     b = left or right => 0: left, 1: right 
