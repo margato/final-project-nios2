@@ -1,11 +1,13 @@
-.equ UART,          0x1000  
-.equ IO_BASE_ADDR,  0x10000000
-.equ TIMER,         0x2000
-.equ DATA_MASK,     0xff
-.equ RVALID_MASK,   0x8000  
-.equ STACK,         0x10000
-.equ LED,           0x40
-
+.equ UART,              0x1000  
+.equ IO_BASE_ADDR,      0x10000000
+.equ TIMER,             0x2000
+.equ DATA_MASK,         0xff
+.equ RVALID_MASK,       0x8000  
+.equ STACK,             0x10000
+.equ LED,               0x40
+.equ _2021,             0x5b3f5b06
+.equ HEX3to0,           0x20
+.equ PUSH_BUTTON_MASK,  0x5c
 .org 0x20
 RTI:
     # prólogo
@@ -27,7 +29,14 @@ RTI:
     br END_RTI
     _HANDLE_INTERRUPTION_LED:
         call HANDLE_INTERRUPTION_LED
-        br END_RTI   
+    
+    call HANDLE_INTERRUPTION_2021
+    
+    andi r13, et, 0b10          # máscara do botão
+    beq r13, r0, END_RTI        # não é interrupção do botão, finaliza interrupção
+
+    call HANDLE_BUTTON_PRESS
+
 
 END_RTI:
     # epílogo
@@ -53,6 +62,9 @@ _start:
 
     srli r17, r10, 16               # parte alta (16 bits superiores)
     stwio r17, TIMER+12(r5)         # configura parte alta do timer
+
+    movi r10, 0x8                   # máscara para bit 3
+    stwio r10, 0x58(r5)
 
     movi r10, 3
     wrctl ienable, r10              # habilitar timer no ienable
@@ -186,6 +198,7 @@ COMMAND:
         br END_COMMAND
     _COMMAND_21:
         call COMMAND_21
+        br END_COMMAND
 
     _INVALID_COMMAND:
         call INVALID_COMMAND
@@ -427,28 +440,126 @@ COMMAND_10:
 
 COMMAND_20:
      # prólogo
-    addi sp, sp, -8
+    addi sp, sp, -20
     stw ra, (sp)
     stw r8, 4(sp)
+    stw r9, 8(sp)
+    stw r10, 12(sp)
+    stw r11, 16(sp)
     
+    
+    movia r10, CURRENT_2021 
+
+    ldw r8, (r10)                       # carrega 2021 da memória em r8
+    beq r8, r0, LOAD_DEFAULT_2021       # se r8 == 0, então deve carregar valor inicial: 2021, senão, carrega valor atual de 2021 (por ex: 0212)
+    br SAVE_2021_IN_MEMORY
+    LOAD_DEFAULT_2021:
+        movia r8, _2021                 # carrega 2021 em r8
+    SAVE_2021_IN_MEMORY:
+    stwio r8, HEX3to0(r5)               # carrega 2021 no hex
+    stw r8, (r10)                       # salva 2021 na memória
+
+    movia r11, SEGMENT_DISPLAY_STATE    # carrega em r11 o endereço de memória de SEGMENT_DISPLAY_STATE
+    ldw r9, (r11)                       # carrega estado atual
+    movi r10, 0b11                      # estado inicial: rotacionando para direita
+    or r9, r9, r10                      # concatena bits de estado
+
+    stw r9, (r11)                       # salva estado na memória
     
      # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
-    addi sp, sp, 8
+    ldw r9, 8(sp)
+    ldw r10, 12(sp)
+    ldw r11, 16(sp)
+    addi sp, sp, 20
     ret 
+
+HANDLE_BUTTON_PRESS:
+     # prólogo
+    addi sp, sp, -12
+    stw ra, (sp)
+    stw r8, 4(sp)
+    stw r9, 8(sp)
+    
+    movi r8, 8
+    ldwio r9, PUSH_BUTTON_MASK(r5)              
+    stwio r8, PUSH_BUTTON_MASK(r5)       # reseta interrupção no detector de borda
+
+
+     # epílogo
+    ldw ra, (sp)
+    ldw r8, 4(sp)
+    ldw r9, 8(sp)
+    addi sp, sp, 12
+    ret     
+
+HANDLE_INTERRUPTION_2021: 
+     # prólogo
+    addi sp, sp, -16
+    stw ra, (sp)
+    stw r8, 4(sp)
+    stw r9, 8(sp)
+    stw r10, 8(sp)
+
+    stwio r0, TIMER(r5)                             # reseta interrupção no detector de borda
+    
+    movia r10, SEGMENT_DISPLAY_STATE                # carrega em r10 o endereço de memória de SEGMENT_DISPLAY_STATE
+    ldw r9, (r10)                                   # carrega estado atual
+
+    andi r8, r9, 0b1                                # carrega bit que indica se está rotacionando
+    beq r8, r0, _END_HANDLE_INTERRUPTION_2021       # caso bit == 0, finaliza tratamento de interrupção
+
+    srli r8, r9, 1                                  # carrega segundo bit que indica direção da rotação
+    andi r8, r8, 0b1                                # obtém apenas bit de direção
+
+    movia r10, CURRENT_2021                           
+    ldw r9, (r10)                                   # carrega valor atual de 2021 na memória 
+    movi r10, 8                                     
+    # 0: left, 1: right 
+    beq r8, r0, LEFT_2021
+
+    RIGHT_2021:
+        ror r9, r9, r10                             # rotaciona 2 bits para direita
+        br _SAVE_2021
+    LEFT_2021:
+        rol r9, r9, r10                             # rotaciona 2 bits para esquerda
+
+    _SAVE_2021:
+        movia r10, CURRENT_2021
+        stw r9, (r10)                                   # salva 2021 atual na memória
+        stwio r9, HEX3to0(r5)                           # carrega 2021 atual no display
+_END_HANDLE_INTERRUPTION_2021:
+     # epílogo
+    ldw ra, (sp)
+    ldw r8, 4(sp)
+    ldw r9, 8(sp)
+    ldw r10, 8(sp)
+    addi sp, sp, 16
+    ret   
 
 COMMAND_21:
      # prólogo
-    addi sp, sp, -8
+    addi sp, sp, -16
     stw ra, (sp)
     stw r8, 4(sp)
+    stw r9, 8(sp)
+    stw r10, 12(sp)
     
-    
+    movia r10, SEGMENT_DISPLAY_STATE    # carrega em r8 o endereço de memória de SEGMENT_DISPLAY_STATE
+    ldw r9, (r10)                       # carrega estado atual
+    andi r8, r9, 0b1                    # obtém bit de rotação
+    beq r8, r0, _END_COMMAND_21         # se não estiver rotacionando, finaliza comando 21
+
+    xori r9, r9, 0b1                    # caso esteja rotacionando, seta como 0 para não rotacionar
+    stw r9, (r10)                       # salva estado na memória
+_END_COMMAND_21:
      # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
-    addi sp, sp, 8
+    ldw r9, 8(sp)
+    ldw r10, 12(sp)
+    addi sp, sp, 16
     ret 
 
 INVALID_COMMAND:
@@ -547,6 +658,20 @@ WRITE_CHAR:
     addi sp, sp, 12
     ret
 
+
+SEGMENT_DISPLAY_STATE:
+/**
+    bits representam estado
+
+    0x00000000
+           cba
+
+    a = is_rotating
+    b = left or right => 0: left, 1: right 
+**/
+    .word 0x0
+CURRENT_2021:
+    .word 0x0
 LED_BASE_ADDR:
     .word 0x0
 CHAR_BASE_ADDR:
