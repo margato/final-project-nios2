@@ -7,7 +7,8 @@
 .equ LED,               0x40
 .equ _2021,             0x5b3f5b06
 .equ HEX3to0,           0x20
-.equ PUSH_BUTTON_MASK,  0x5c
+.equ PUSH_BUTTON_MASK,  0x50
+.equ INTERRUPTION_MASK, 0x58
 .org 0x20
 RTI:
     # prólogo
@@ -31,11 +32,8 @@ RTI:
         call HANDLE_INTERRUPTION_LED
     
     call HANDLE_INTERRUPTION_2021
-    
-    andi r13, et, 0b10          # máscara do botão
-    beq r13, r0, END_RTI        # não é interrupção do botão, finaliza interrupção
-
-    call HANDLE_BUTTON_PRESS
+    call HANDLE_KEY1_PRESS
+    call HANDLE_KEY2_PRESS
 
 
 END_RTI:
@@ -54,6 +52,8 @@ _start:
     movia r5, IO_BASE_ADDR 
     mov r2, r0                      # resetar r2
 
+    movi r10, 0x8                   # máscara para bit 3
+    stwio r10, INTERRUPTION_MASK+4(r5)
 
     movia r10, 25000000             # 25*10^6 = 500ms
 
@@ -472,20 +472,104 @@ COMMAND_20:
     addi sp, sp, 20
     ret 
 
-HANDLE_BUTTON_PRESS:
+TOGGLE_2021_ROTATION:
+    addi sp, sp, -12
+    stw ra, (sp)
+    stw r8, 4(sp)
+    stw r9, 8(sp)
+
+    movia r9, SEGMENT_DISPLAY_STATE                # carrega em r10 o endereço de memória de SEGMENT_DISPLAY_STATE
+    ldw r8, (r9)                                   # carrega estado atual
+
+    xori r8, r8, 0b1                               # inverte bit de rotação
+    stw r8, (r9)
+
+_END_TOGGLE_2021_ROTATION:
+     # epílogo
+    ldw ra, (sp)
+    ldw r8, 4(sp)
+    ldw r9, 8(sp)
+    addi sp, sp, 12
+    ret   
+
+TOGGLE_2021_DIRECTION:
+    addi sp, sp, -12
+    stw ra, (sp)
+    stw r8, 4(sp)
+    stw r9, 8(sp)
+
+    movia r9, SEGMENT_DISPLAY_STATE                # carrega em r10 o endereço de memória de SEGMENT_DISPLAY_STATE
+    ldw r8, (r9)                                   # carrega estado atual
+
+    xori r8, r8, 0b10                              # inverte bit de direção
+    stw r8, (r9)
+
+_END_TOGGLE_2021_DIRECTION:
+     # epílogo
+    ldw ra, (sp)
+    ldw r8, 4(sp)
+    ldw r9, 8(sp)
+    addi sp, sp, 12
+    ret   
+
+HANDLE_KEY1_PRESS:
      # prólogo
     addi sp, sp, -12
     stw ra, (sp)
     stw r8, 4(sp)
     stw r9, 8(sp)
 
+    ldwio r8, PUSH_BUTTON_MASK+12(r5)               # le a flag status
 
+    andi r8, r8, 0x2                                # checa se KEY1 foi pressionado
+    beq r8, r0, _END_HANDLE_KEY1_PRESS              # finaliza tratamento caso falso
+    movi r8, 2
+    stwio r8, PUSH_BUTTON_MASK+12(r5)               # limpar captura de borda de KEY1
+
+    movia r9, SEGMENT_DISPLAY_STATE                 # carrega em r9 o endereço de memória de SEGMENT_DISPLAY_STATE
+    ldw r8, (r9)                                    # carrega estado atual
+
+    _KEY1_PRESS:
+        andi r9, r8, 0b1                            # carrega bit que indica se está rotacionando
+        beq r9, r0, _END_HANDLE_KEY1_PRESS          # caso bit == 0, finaliza tratamento de interrupção
+        call TOGGLE_2021_DIRECTION
+
+_END_HANDLE_KEY1_PRESS:
      # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
     ldw r9, 8(sp)
     addi sp, sp, 12
     ret     
+
+
+HANDLE_KEY2_PRESS:
+     # prólogo
+    addi sp, sp, -12
+    stw ra, (sp)
+    stw r8, 4(sp)
+    stw r9, 8(sp)
+
+    ldwio r8, PUSH_BUTTON_MASK+12(r5)               # le a flag status
+
+    andi r8, r8, 0x4                                # checa se KEY2 foi pressionado
+    beq r8, r0, _END_HANDLE_KEY2_PRESS              # finaliza tratamento caso falso
+    movi r8, 4
+    stwio r8, PUSH_BUTTON_MASK+12(r5)               # limpar captura de borda de KEY2
+
+    movia r9, SEGMENT_DISPLAY_STATE                 # carrega em r9 o endereço de memória de SEGMENT_DISPLAY_STATE
+    ldw r8, (r9)                                    # carrega estado atual
+
+    _KEY2_PRESS:
+        call TOGGLE_2021_ROTATION
+
+_END_HANDLE_KEY2_PRESS:
+     # epílogo
+    ldw ra, (sp)
+    ldw r8, 4(sp)
+    ldw r9, 8(sp)
+    addi sp, sp, 12
+    ret    
 
 HANDLE_INTERRUPTION_2021: 
      # prólogo
