@@ -1,15 +1,12 @@
-.equ UART,              0x1000  
-.equ IO_BASE_ADDR,      0x10000000
-.equ TIMER,             0x2000
-.equ DATA_MASK,         0xff
-.equ RVALID_MASK,       0x8000  
-.equ STACK,             0x10000
-.equ LED,               0x40
-.equ _2021,             0x5b3f5b06
-.equ HEX3to0,           0x20
-.equ HEX7to3,           0x30
-.equ PUSH_BUTTON_MASK,  0x50
-.equ INTERRUPTION_MASK, 0x58
+.equ UART,          0x1000  
+.equ IO_BASE_ADDR,  0x10000000
+.equ DATA_MASK,     0xff
+.equ RVALID_MASK,   0x8000  
+.equ STACK,         0x10000
+.equ SWITCHES,      0x40
+.equ DISPLAY,       0x20
+
+
 .org 0x20
 RTI:
     # prólogo
@@ -24,18 +21,9 @@ RTI:
 
     subi ea, ea, 4          
 
-    andi r8, et, 0b11           # máscara do timer
-
+    andi r8, et, 1              # máscara do temporizador
     movi r9, 1 
-    beq r8, r9, _HANDLE_INTERRUPTION_LED
-    br END_RTI
-    _HANDLE_INTERRUPTION_LED:
-        call HANDLE_INTERRUPTION_LED
-    
-    call HANDLE_INTERRUPTION_2021
-    call HANDLE_KEY1_PRESS
-    call HANDLE_KEY2_PRESS
-
+    bne r8, r9, END_RTI   
 
 END_RTI:
     # epílogo
@@ -50,28 +38,9 @@ eret
 _start:
     movia sp, STACK 
     mov fp, sp
+
     movia r5, IO_BASE_ADDR 
     mov r2, r0                      # resetar r2
-
-    movi r10, 0x8                   # máscara para bit 3
-    stwio r10, INTERRUPTION_MASK+4(r5)
-
-    movia r10, 25000000             # 25*10^6 = 500ms
-
-    andi r17, r10, 0xFFFF           # parte baixa (16 bits inferiores)
-    stwio r17, TIMER+8(r5)          # configura parte baixa do timer
-
-    srli r17, r10, 16               # parte alta (16 bits superiores)
-    stwio r17, TIMER+12(r5)         # configura parte alta do timer
-
-    movi r10, 3
-    wrctl ienable, r10              # habilitar timer no ienable
-    movi r10, 1
-    wrctl status, r10               # habilitar o PIE no status
-
-    movi r10, 0b111                 # configuração do timer
-    stwio r10, TIMER+4(r5)          # salva configuração do timer
-
     call PRINT_INSERT_COMMAND
     POLLING:
         movi r9, 0xa                # carrega ENTER em r9
@@ -129,7 +98,7 @@ END_READ_CHAR:
     ret 
     
 COMMAND:
-    # prólogo
+     # prólogo
     addi sp, sp, -24
     stw ra, (sp)
     stw r8, 4(sp)
@@ -180,24 +149,21 @@ COMMAND:
         call COMMAND_00
         br END_COMMAND
     _COMMAND_01:
-        movi r9, 0x20                           # carrega ESPAÇO em r9                
-        bne r11, r9, _INVALID_COMMAND           # se o terceiro char não for ESPAÇO: comando inválido
-
-        mov r4, r8                            
-        addi r4, r4, 16                         # define como argumento do comando o endereço do primeiro argumento
-
         call COMMAND_01  
         br END_COMMAND 
     _COMMAND_10:
-        call COMMAND_10
+		ldwio	r11,	SWITCHES(r5)  #Carrega os valores contidos no switch
+		movi    r9, 0xFF			  #Movendo 255 para teste
+		bgt     r11, r9, _INVALID_COMMAND #Caso o valor seja maior que 255 (8 bits) comando invalido
+		
+		call COMMAND_10
         br END_COMMAND
     _COMMAND_20:
         call COMMAND_20
         br END_COMMAND
     _COMMAND_21:
         call COMMAND_21
-        br END_COMMAND
-
+		br END_COMMAND
     _INVALID_COMMAND:
         call INVALID_COMMAND
 
@@ -212,8 +178,8 @@ COMMAND:
     addi sp, sp, 24
     ret 
 
-HANDLE_COMMAND_LEDS_ARGUMENT:
-    # prólogo
+HANDLE_COMMAND_00_ARGUMENT:
+     # prólogo
     addi sp, sp, -20
     stw ra, (sp)
     stw r8, 4(sp)
@@ -258,7 +224,7 @@ HANDLE_COMMAND_LEDS_ARGUMENT:
     END_HANDLE_COMMAND_00_ARGUMENT:
         mov r2, r8
     
-    # epílogo
+     # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
     ldw r9, 8(sp)
@@ -268,17 +234,17 @@ HANDLE_COMMAND_LEDS_ARGUMENT:
     ret 
 
 COMMAND_00:
-    # prólogo
+     # prólogo
     addi sp, sp, -16
     stw ra, (sp)
     stw r2, 4(sp)
     stw r8, 8(sp)
     stw r9, 12(sp)
 
-    call HANDLE_COMMAND_LEDS_ARGUMENT
+    call HANDLE_COMMAND_00_ARGUMENT
     movi r8, -1
 
-    beq r8, r2, INVALID_ARGUMENT_COMMAND_00     # se HANDLE_COMMAND_LEDS_ARGUMENT retornar -1: argumento inválido
+    beq r8, r2, INVALID_ARGUMENT_COMMAND_00     # se HANDLE_COMMAND_00_ARGUMENT retornar -1: argumento inválido
 
     mov r4, r2
     call TURN_ON_NTH_LED
@@ -289,7 +255,7 @@ COMMAND_00:
         br END_COMMAND_00
 
     END_COMMAND_00:    
-    # epílogo
+     # epílogo
     ldw ra, (sp)
     ldw r2, 4(sp)
     ldw r8, 8(sp)
@@ -297,371 +263,86 @@ COMMAND_00:
     addi sp, sp, 16
     ret 
 
-HANDLE_INTERRUPTION_LED: 
-    # prólogo
+TURN_ON_NTH_LED: # arg: n = r4
+     # prólogo
     addi sp, sp, -12
     stw ra, (sp)
     stw r8, 4(sp)
-    stw r9, 8(sp)
-
-    stwio r0, TIMER(r5)             # reseta interrupção no detector de borda
+    stw r4, 8(sp)
     
-    #LED_BASE_ADDR
-    movi r9, LED_BASE_ADDR          # carrega endereço dos leds em r10
-    ldw r8, (r9)                    # carrega leds que devem ser acesos (memória)
-    ldwio r9, (r5)                  # carrega leds acesos atualmente
+    movi r8, 0x1
+    subi r4, r4, 1
+    sll r8, r8, r4
+    stwio r8, (r5)                              # acende led
 
-    beq r9, r0, TURN_ON_LEDS        # se led apagado, acende
-    TURN_OFF_LEDS:
-        stwio r0, (r5)              # apaga leds
-        br _END_HANDLE_INTERRUPTION_LED
-    TURN_ON_LEDS:
-        stwio r8, (r5)              # acende leds
-
-_END_HANDLE_INTERRUPTION_LED:
-    # epílogo
+     # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
-    ldw r9, 8(sp)
+    ldw r4, 8(sp)
     addi sp, sp, 12
-    ret   
-
-TURN_ON_NTH_LED: # arg: n = r4
-    # prólogo
-    addi sp, sp, -20
-    stw ra, (sp)
-    stw r8, 4(sp)
-    stw r9, 8(sp)
-    stw r10, 12(sp)
-    stw r4, 16(sp)
-    
-    movi r8, 0x1                    # carrega 0x1 em r8
-    subi r4, r4, 1                  # subtraí de r4, uma vez que começa de 0 a N led
-    sll r8, r8, r4                  # move o bit [r4] - 1 vezes para esquerda. por exemplo: r4 = 4, então r8 = 0x1000
-
-    movi r10, LED_BASE_ADDR         # carrega endereço dos leds em r10
-    ldw r9, (r10)
-
-    or r9, r9, r8                   # concatenar leds 
-
-    stw r9, (r10)                   # salva leds
-
-    # epílogo
-    ldw ra, (sp)
-    ldw r8, 4(sp)
-    ldw r9, 8(sp)
-    ldw r10, 12(sp)
-    ldw r4, 16(sp)
-    addi sp, sp, 20
-    ret 
-
-TURN_OFF_NTH_LED: # arg: n = r4
-    # prólogo
-    addi sp, sp, -24
-    stw ra, (sp)
-    stw r8, 4(sp)
-    stw r9, 8(sp)
-    stw r10, 12(sp)
-    stw r11, 16(sp)
-    stw r4, 20(sp)
-    
-    movi r8, 0x1                        # carrega 0x1 em r8
-    subi r4, r4, 1                      # subtraí de r4, uma vez que começa de 0 a N led
-    sll r8, r8, r4                      # move o bit [r4] - 1 vezes para esquerda. por exemplo: r4 = 4, então r8 = 0x1000
-
-    movi r10, LED_BASE_ADDR             # carrega endereço dos leds em r10
-    ldw r9, (r10)
-
-    mov r11, r9                         # carrega leds salvo na memória
-    srl r11, r11, r4                     
-    andi r11, r11, 0x1                  # pega bit que está sendo desligado
-
-    beq r11, r0, _END_TURN_OFF_NTH_LED  # se bit for 0, finaliza
-
-    xor r9, r9, r8                      # concatenar leds 
-    stw r9, (r10)                       # salva leds
-
-_END_TURN_OFF_NTH_LED:
-    # epílogo
-    ldw ra, (sp)
-    ldw r8, 4(sp)
-    ldw r9, 8(sp)
-    ldw r10, 12(sp)
-    ldw r11, 16(sp)
-    ldw r4, 20(sp)
-    addi sp, sp, 24
     ret 
 
 COMMAND_01:
-    # prólogo
-    addi sp, sp, -16
-    stw ra, (sp)
-    stw r2, 4(sp)
-    stw r8, 8(sp)
-    stw r9, 12(sp)
-
-    call HANDLE_COMMAND_LEDS_ARGUMENT
-    movi r8, -1
-
-    beq r8, r2, INVALID_ARGUMENT_COMMAND_01     # se HANDLE_COMMAND_LEDS_ARGUMENT retornar -1: argumento inválido
-
-    mov r4, r2
-    call TURN_OFF_NTH_LED
-
-    br END_COMMAND_01
-    INVALID_ARGUMENT_COMMAND_01:
-        call PRINT_INVALID_COMMAND
-        br END_COMMAND_01
-
-    END_COMMAND_01:    
-    # epílogo
-    ldw ra, (sp)
-    ldw r2, 4(sp)
-    ldw r8, 8(sp)
-    ldw r9, 12(sp)
-    addi sp, sp, 16
-    ret 
-
-
-COMMAND_10:
-    # prólogo
+     # prólogo
     addi sp, sp, -8
     stw ra, (sp)
     stw r8, 4(sp)
     
-    
-    # epílogo
+
+     # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
     addi sp, sp, 8
     ret 
 
-COMMAND_20:
-    # prólogo
-    addi sp, sp, -20
+COMMAND_10:
+     # prólogo
+    addi sp, sp, -12
     stw ra, (sp)
-    stw r8, 4(sp)
-    stw r9, 8(sp)
-    stw r10, 12(sp)
-    stw r11, 16(sp)
+    stw r7, 4(sp)
+	stw r8, 8(sp)
     
-    
-    movia r10, CURRENT_2021 
-
-    ldw r8, (r10)                       # carrega 2021 da memória em r8
-    beq r8, r0, LOAD_DEFAULT_2021       # se r8 == 0, então deve carregar valor inicial: 2021, senão, carrega valor atual de 2021 (por ex: 0212)
-    br SAVE_2021_IN_MEMORY
-    LOAD_DEFAULT_2021:
-        movia r8, _2021                 # carrega 2021 em r8
-    SAVE_2021_IN_MEMORY:
-    stwio r8, HEX3to0(r5)               # carrega 2021 no hex
-    stw r8, (r10)                       # salva 2021 na memória
-
-    movia r11, SEGMENT_DISPLAY_STATE    # carrega em r11 o endereço de memória de SEGMENT_DISPLAY_STATE
-    ldw r9, (r11)                       # carrega estado atual
-    movi r10, 0b11                      # estado inicial: rotacionando para direita
-    or r9, r9, r10                      # concatena bits de estado
-
-    stw r9, (r11)                       # salva estado na memória
-    
-    # epílogo
+	ldwio	r7,	SWITCHES(r5)  #Carrega os valores contidos no switch
+	
+	mov		r8, r7			  #Salva valor de n para ser usado no numero triangular
+	addi	r7, r7, 0x1		  #n + 1
+	mul		r7, r8, r7		  #n(n + 1) 
+	movi	r8, 0x2			  #prepara a div por 2
+	div		r7, r7, r8		  #(n(n + 1))/2
+	
+    mov  	r4, r7			  #Prepara o argumento pro decoder
+	call	DECODER			  #Chama a função de decodificação
+     # epílogo
     ldw ra, (sp)
-    ldw r8, 4(sp)
-    ldw r9, 8(sp)
-    ldw r10, 12(sp)
-    ldw r11, 16(sp)
-    addi sp, sp, 20
+    ldw r7, 4(sp)
+    ldw r8, 8(sp)
+    addi sp, sp, 12
     ret 
 
-TOGGLE_2021_ROTATION:
-    addi sp, sp, -12
+COMMAND_20:
+     # prólogo
+    addi sp, sp, -8
     stw ra, (sp)
     stw r8, 4(sp)
-    stw r9, 8(sp)
-
-    movia r9, SEGMENT_DISPLAY_STATE                # carrega em r10 o endereço de memória de SEGMENT_DISPLAY_STATE
-    ldw r8, (r9)                                   # carrega estado atual
-
-    xori r8, r8, 0b1                               # inverte bit de rotação
-    stw r8, (r9)
-
-_END_TOGGLE_2021_ROTATION:
-    # epílogo
-    ldw ra, (sp)
-    ldw r8, 4(sp)
-    ldw r9, 8(sp)
-    addi sp, sp, 12
-    ret   
-
-TOGGLE_2021_DIRECTION:
-    addi sp, sp, -12
-    stw ra, (sp)
-    stw r8, 4(sp)
-    stw r9, 8(sp)
-
-    movia r9, SEGMENT_DISPLAY_STATE                # carrega em r10 o endereço de memória de SEGMENT_DISPLAY_STATE
-    ldw r8, (r9)                                   # carrega estado atual
-
-    xori r8, r8, 0b10                              # inverte bit de direção
-    stw r8, (r9)
-
-_END_TOGGLE_2021_DIRECTION:
-    # epílogo
-    ldw ra, (sp)
-    ldw r8, 4(sp)
-    ldw r9, 8(sp)
-    addi sp, sp, 12
-    ret   
-
-HANDLE_KEY1_PRESS:
-    # prólogo
-    addi sp, sp, -12
-    stw ra, (sp)
-    stw r8, 4(sp)
-    stw r9, 8(sp)
-
-    ldwio r8, PUSH_BUTTON_MASK+12(r5)               # le a flag status
-
-    andi r8, r8, 0x2                                # checa se KEY1 foi pressionado
-    beq r8, r0, _END_HANDLE_KEY1_PRESS              # finaliza tratamento caso falso
-    movi r8, 2
-    stwio r8, PUSH_BUTTON_MASK+12(r5)               # limpar captura de borda de KEY1
-
-    movia r9, SEGMENT_DISPLAY_STATE                 # carrega em r9 o endereço de memória de SEGMENT_DISPLAY_STATE
-    ldw r8, (r9)                                    # carrega estado atual
-
-    _KEY1_PRESS:
-        andi r9, r8, 0b1                            # carrega bit que indica se está rotacionando
-        beq r9, r0, _END_HANDLE_KEY1_PRESS          # caso bit == 0, finaliza tratamento de interrupção
-        call TOGGLE_2021_DIRECTION
-
-_END_HANDLE_KEY1_PRESS:
-    # epílogo
-    ldw ra, (sp)
-    ldw r8, 4(sp)
-    ldw r9, 8(sp)
-    addi sp, sp, 12
-    ret     
-
-
-HANDLE_KEY2_PRESS:
-    # prólogo
-    addi sp, sp, -12
-    stw ra, (sp)
-    stw r8, 4(sp)
-    stw r9, 8(sp)
-
-    ldwio r8, PUSH_BUTTON_MASK+12(r5)               # le a flag status
-
-    andi r8, r8, 0x4                                # checa se KEY2 foi pressionado
-    beq r8, r0, _END_HANDLE_KEY2_PRESS              # finaliza tratamento caso falso
-    movi r8, 4
-    stwio r8, PUSH_BUTTON_MASK+12(r5)               # limpar captura de borda de KEY2
-
-    movia r9, SEGMENT_DISPLAY_STATE                 # carrega em r9 o endereço de memória de SEGMENT_DISPLAY_STATE
-    ldw r8, (r9)                                    # carrega estado atual
-
-    _KEY2_PRESS:
-        call TOGGLE_2021_ROTATION
-
-_END_HANDLE_KEY2_PRESS:
-    # epílogo
-    ldw ra, (sp)
-    ldw r8, 4(sp)
-    ldw r9, 8(sp)
-    addi sp, sp, 12
-    ret    
-
-HANDLE_INTERRUPTION_2021: 
-    # prólogo
-    addi sp, sp, -28
-    stw ra, (sp)
-    stw r8, 4(sp)
-    stw r9, 8(sp)
-    stw r10, 12(sp)
-    stw r11, 16(sp)
-    stw r12, 20(sp)
-    stw r13, 24(sp)
-
-    stwio r0, TIMER(r5)                             # reseta interrupção no detector de borda
     
-    movia r10, SEGMENT_DISPLAY_STATE                # carrega em r10 o endereço de memória de SEGMENT_DISPLAY_STATE
-    ldw r9, (r10)                                   # carrega estado atual
-
-    andi r8, r9, 0b1                                # carrega bit que indica se está rotacionando
-    beq r8, r0, _END_HANDLE_INTERRUPTION_2021       # caso bit == 0, finaliza tratamento de interrupção
-
-    srli r8, r9, 1                                  # carrega segundo bit que indica direção da rotação
-    andi r8, r8, 0b1                                # obtém apenas bit de direção
-
-    movia r10, CURRENT_2021                           
-    ldw r11, 4(r10)                                   # carrega valor atual de 2021 na memória HEX7-4
-    ldw r9, (r10)                                   # carrega valor atual de 2021 na memória HEX3-0
-    movi r10, 8                                     
-    # 0: left, 1: right 
-    movia r13, 0xFF000000
-    beq r8, r0, LEFT_2021
-
-    RIGHT_2021:
-        andi r12, r9, 0xFF                          # pega o ultimo numero HEX3-0
-        slli r12, r12, 24                           # shift left ultimo numero 
-        andi r8, r11, 0xFF                          # pega o ultimo numero HEX7-4
-        srl r11, r11, r10                           # shift right HEX7-4
-        or r11, r11, r12                            # concatena 
-        srl r9, r9, r10                             # shift right HEX7-4
-        slli r8, r8, 24                             # shift left ultimo numero
-        or r9, r9, r8                               # concatena 
-        br _SAVE_2021
-    LEFT_2021:
-        and r12, r9, r13                            # pega o primeiro numero HEX3-0
-        srli r12, r12, 24                           # shift right primeiro numero
-        and r8, r11, r13                            # pega o primeiro numero HEX7-4
-        sll r11, r11, r10                           # shift left HEX7-4
-        or r11, r11, r12                            # concatena 
-        sll r9, r9, r10                             # shift right HEX7-4
-        srli r8, r8, 24                             # shift right ultimo numero
-        or r9, r9, r8                               # concatena
-    _SAVE_2021:
-        movia r10, CURRENT_2021
-        stw r9, (r10)                               # salva 2021 atual na memória
-        stw r11, 4(r10)                             # salva 2021 atual na memória
-        stwio r9, HEX3to0(r5)                       # carrega 2021 atual no display
-        stwio r11, HEX7to3(r5)                      # carrega 2021 atual no display
-
-_END_HANDLE_INTERRUPTION_2021:
-    # epílogo
+    
+     # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
-    ldw r9, 8(sp)
-    ldw r10, 12(sp)
-    ldw r11, 16(sp)
-    ldw r12, 20(sp)
-    ldw r13, 24(sp)
-    addi sp, sp, 28
-    ret  
+    addi sp, sp, 8
+    ret 
 
 COMMAND_21:
-    # prólogo
-    addi sp, sp, -16
+     # prólogo
+    addi sp, sp, -8
     stw ra, (sp)
     stw r8, 4(sp)
-    stw r9, 8(sp)
-    stw r10, 12(sp)
     
-    movia r10, SEGMENT_DISPLAY_STATE    # carrega em r8 o endereço de memória de SEGMENT_DISPLAY_STATE
-    ldw r9, (r10)                       # carrega estado atual
-    andi r8, r9, 0b1                    # obtém bit de rotação
-    beq r8, r0, _END_COMMAND_21         # se não estiver rotacionando, finaliza comando 21
-
-    xori r9, r9, 0b1                    # caso esteja rotacionando, seta como 0 para não rotacionar
-    stw r9, (r10)                       # salva estado na memória
-_END_COMMAND_21:
-    # epílogo
+    
+     # epílogo
     ldw ra, (sp)
     ldw r8, 4(sp)
-    ldw r9, 8(sp)
-    ldw r10, 12(sp)
-    addi sp, sp, 16
+    addi sp, sp, 8
     ret 
 
 INVALID_COMMAND:
@@ -710,6 +391,111 @@ PRINT_INSERT_COMMAND:
     addi sp, sp, 8
     ret 
 
+
+DECODER:
+	addi sp, sp, -32
+    stw ra, (sp)
+    stw r8, 4(sp)
+	stw r9, 8(sp)
+	stw r10, 12(sp)
+	stw r11, 16(sp)
+	stw r12, 20(sp)
+	stw r13, 24(sp)
+	stw r14, 28(sp)
+
+	mov		r11,r4					#Move o valor do(s) switche(s) para r11
+	movia 	r13,0x0					#Zera r13
+	movi	r14,-8					#Inicializa na posição -8
+	br		FOR_COND				#Pula para condição do FOR	(r11!=0)
+	FOR_LOOP:
+		movia 	r9,0xF				#Mascara para separar os ultimos quatro bits
+		and	  	r9,r11,r9			#Aplicação da mascara
+		Switch:						#Switch para saber qual segmento preencher
+			addi	r14,r14,8		#Acumulador para localziar a posição do digito
+			movia	r8,0x3f			#Move o codigo do segmento referente ao numero 0
+			beq		r9,r0,FOR_END
+
+			movia	r8,0x6			#Move o codigo do segmento referente ao numero 1
+			movia	r10,0x1			#Move o numero 1 para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x5b			#Move o codigo do segmento referente ao numero 2
+			movia	r10,0x2			#Move o numero 2 para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x4f			#Move o codigo do segmento referente ao numero 3
+			movia	r10,0x3			#Move o numero 3 para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x66			#Move o codigo do segmento referente ao numero 4
+			movia	r10,0x4			#Move o numero 4 para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x6d			#Move o codigo do segmento referente ao numero 5
+			movia	r10,0x5			#Move o numero 5 para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x7d			#Move o codigo do segmento referente ao numero 6
+			movia	r10,0x6			#Move o numero 6 para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x7			#Move o codigo do segmento referente ao numero 7
+			movia	r10,0x7			#Move o numero 7 para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x7F			#Move o codigo do segmento referente ao numero 8
+			movia	r10,0x8			#Move o numero 8 para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x6F			#Move o codigo do segmento referente ao numero 9
+			movia	r10,0x9			#Move o numero 9 para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x77			#Move o codigo do segmento referente ao numero A
+			movia	r10,0xa			#Move o numero A para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x7F			#Move o codigo do segmento referente ao numero B
+			movia	r10,0xb			#Move o numero B para fazer a comparação
+			beq		r9,r10,FOR_END
+	
+			movia	r8,0x39			#Move o codigo do segmento referente ao numero C
+			movia	r10,0xc			#Move o numero C para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x3F			#Move o codigo do segmento referente ao numero D
+			movia	r10,0xd			#Move o numero D para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x79			#Move o codigo do segmento referente ao numero E
+			movia	r10,0xe			#Move o numero E para fazer a comparação
+			beq		r9,r10,FOR_END
+
+			movia	r8,0x71			#Move o codigo do segmento referente ao numero F
+			movia	r10,0xf			#Move o numero F para fazer a comparação
+		
+	FOR_END:
+		srli    r11,r11,0x4			#Descarta os 4 bits já codificados
+		mov		r12,r8				#Salva o segmento do número atual
+		sll		r12,r12,r14			#Caminha para o endereço corresponte do digito
+		or		r13,r13,r12			#Concatena o segmento anterior com o atual
+	FOR_COND:
+		bne		r11,r0,FOR_LOOP		#Condição do FOR (r11!=0)
+		stwio	r13,DISPLAY(r5)		#Carrega o(s) valores do segmento(s) para o endereço correto
+	
+	
+     # epílogo
+    ldw ra, (sp)
+    ldw r8, 4(sp)
+	ldw r9, 8(sp)
+	ldw r10, 12(sp)
+	ldw r11, 16(sp)
+	ldw r12, 20(sp)
+	ldw r13, 24(sp)
+	ldw r14, 28(sp)
+    addi sp, sp, 32
+    ret  
+
 PRINT_INVALID_COMMAND:
     # prólogo
     addi sp, sp, -8
@@ -725,13 +511,13 @@ PRINT_INVALID_COMMAND:
     movia r4, 0x69206f64        # "do i"
     call WRITE_CHAR
 
-    movia r4, 0x6ce1766e        # "nvál"
+    movia r4, 0x6ce1766e       # "nvál"
     call WRITE_CHAR
 
-    movia r4, 0x6f6469          # "ido"
+    movia r4, 0x6f6469       # "ido"
     call WRITE_CHAR   
     
-    movia r4, 0x0a0a            # "ENTERENTER"
+    movia r4, 0x0a0a       # "ENTERENTER"
     call WRITE_CHAR
 
     # epílogo
@@ -761,21 +547,5 @@ WRITE_CHAR:
     ret
 
 
-SEGMENT_DISPLAY_STATE:
-/**
-    bits representam estado
-
-    0b00000000
-            ba
-
-    a = is_rotating
-    b = left or right => 0: left, 1: right 
-**/
-    .word 0x0
-CURRENT_2021:
-    .word 0x0
-    .word 0x0
-LED_BASE_ADDR:
-    .word 0x0
 CHAR_BASE_ADDR:
     .word 0x0
